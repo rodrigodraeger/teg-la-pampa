@@ -1,0 +1,293 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TEG La Pampa</title>
+<link rel="stylesheet" href="lib/tipografia.css">
+<style>
+:root {
+  --madera: #3E3226;
+  --madera-oscura: #2B2219;
+  --veta: #5C4A36;
+  --yerba: #A9C46C;
+  --texto: #EFE7D6;
+  --texto-suave: #CDBFA6;
+  --tinta: #1A140E;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body {
+  background: var(--madera);
+  color: var(--texto);
+  font-family: "Vollkorn SC", serif;
+  font-size: 15px;
+  line-height: 1.35;
+  overflow: hidden;
+}
+#app { position: relative; height: 100vh; overflow: hidden; }
+#lienzo { display: block; width: 100%; height: 100%; cursor: pointer; }
+h1 { font-size: 26px; font-weight: 700; margin: 0; }
+h2 { font-size: 17px; font-weight: 600; margin: 0 0 6px; color: var(--yerba); }
+p { margin: 0 0 6px; }
+.sub { color: var(--texto-suave); margin: 2px 0 0; }
+button, select {
+  font-family: inherit;
+  font-size: 15px;
+  color: var(--texto);
+  background: var(--madera);
+  border: 1px solid var(--veta);
+  border-radius: 4px;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+button:hover:not(:disabled) { background: #4A3C2E; }
+button:disabled { opacity: .45; cursor: default; }
+button.principal { background: var(--yerba); color: var(--tinta); border-color: var(--yerba); font-weight: 600; }
+button.principal:hover:not(:disabled) { background: #BAD27F; }
+.botones { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.alianza { display: flex; align-items: center; gap: 8px; }
+.alianza img { width: 24px; height: 24px; background: var(--texto); border-radius: 4px; padding: 2px; }
+table { width: 100%; border-collapse: collapse; }
+td { padding: 3px 4px 3px 0; vertical-align: middle; }
+td.n { text-align: right; font-variant-numeric: tabular-nums; }
+.vos { color: var(--yerba); font-weight: 600; }
+.dados { display: flex; gap: 5px; align-items: center; margin: 3px 0; }
+.dado {
+  width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center;
+  background: var(--texto); color: var(--tinta); border-radius: 4px; font-weight: 700; font-size: 17px;
+}
+.dado.pierde { background: #6E6253; color: var(--texto); text-decoration: line-through; }
+.rotulo { width: 70px; color: var(--texto-suave); }
+.oculto { display: none !important; }
+.tabla-oscura { background: var(--madera-oscura); border: 1px solid var(--veta); border-radius: 6px; }
+
+/* barra de arriba */
+#hud {
+  position: absolute; left: 0; right: 0; top: 0; min-height: 58px;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; padding: 5px 10px;
+  background: var(--madera-oscura); border-bottom: 1px solid var(--veta);
+}
+#hud .bloque { display: grid; line-height: 1.15; }
+#hud .bloque small { color: var(--texto-suave); font-size: 13px; }
+#hud .bloque b { font-size: 17px; }
+#camara { display: flex; gap: 4px; margin-left: auto; }
+#camara button, #b-menu { padding: 4px 8px; font-size: 14px; }
+/* las Alianzas van en su propia fila, de punta a punta */
+#marcador { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 4px; order: 9; flex-basis: 100%; }
+.ficha-hud {
+  display: grid; grid-template-columns: 22px auto; column-gap: 5px; align-items: center;
+  padding: 2px 6px 2px 3px; border: 1px solid var(--veta); border-radius: 4px; background: var(--madera);
+}
+.ficha-hud img { grid-row: span 2; width: 22px; height: 22px; background: var(--texto); border-radius: 4px; padding: 2px; }
+.ficha-hud.turno { border-color: var(--yerba); }
+.ficha-hud.sin-icono { grid-template-columns: auto; padding-left: 9px; }
+.ficha-hud.fuera { opacity: .5; }
+.ficha-hud span { font-size: 13px; white-space: nowrap; }
+.ficha-hud small { color: var(--texto-suave); font-size: 12px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+/* panel de acciones a la derecha */
+#acciones { position: absolute; right: 12px; top: 102px; width: 300px; padding: 12px 14px; max-height: calc(100% - 300px); overflow-y: auto; }
+.blancos { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.blancos button { padding: 3px 7px; font-size: 14px; }
+
+/* mesa de abajo: carta de la ronda, objetivo, tarjetas y pactos */
+#abajo {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  display: flex; align-items: flex-end; gap: 14px; padding: 10px 14px 12px;
+  pointer-events: none;
+}
+#abajo > * { pointer-events: auto; }
+.grupo { display: grid; gap: 4px; }
+.grupo > small { color: var(--texto-suave); font-size: 13px; }
+.naipes { display: flex; gap: 6px; align-items: flex-end; }
+.naipe {
+  width: 108px; height: 152px; display: flex; flex-direction: column; gap: 3px;
+  background: var(--madera-oscura); border: 1px solid var(--veta); border-radius: 6px; padding: 7px 8px;
+}
+.naipe .tipo { font-size: 12px; color: var(--texto-suave); }
+.naipe svg { width: 42px; height: 42px; margin: 2px auto; display: block; }
+.naipe b { font-size: 14px; line-height: 1.15; }
+.naipe small { font-size: 12px; color: var(--texto-suave); line-height: 1.2; }
+.naipe .marca { margin-top: auto; font-size: 12px; color: var(--yerba); }
+.naipe.ancha { width: 170px; height: auto; min-height: 152px; }
+.naipe.ancha b { font-size: 16px; }
+.naipe.ancha small { font-size: 13px; }
+.naipe.vacia { border-style: dashed; justify-content: center; text-align: center; }
+#mano .botones { margin: 0; }
+#pactos { width: 230px; padding: 8px 10px; align-self: stretch; }
+#pactos p { font-size: 14px; margin-bottom: 3px; }
+#pactos button { font-size: 13px; padding: 4px 8px; }
+
+/* carteles sobre el tablero */
+#tip {
+  position: absolute; pointer-events: none; display: none;
+  background: var(--madera-oscura); border: 1px solid var(--veta); border-radius: 4px;
+  padding: 6px 9px; font-size: 14px; max-width: 260px;
+}
+#tip b { font-size: 16px; }
+.capa {
+  position: absolute; left: 50%; top: 106px; transform: translateX(-50%); width: min(600px, calc(100% - 32px));
+  max-height: calc(100% - 96px); overflow-y: auto;
+  background: var(--madera-oscura); border: 1px solid var(--veta); border-radius: 6px;
+  padding: 20px 22px;
+}
+.capa h1 { margin-bottom: 8px; }
+.eleccion { display: grid; gap: 8px; margin-top: 12px; }
+.eleccion button { display: flex; align-items: center; gap: 12px; text-align: left; padding: 8px 10px; }
+.eleccion img { width: 40px; height: 40px; background: var(--texto); border-radius: 4px; padding: 3px; }
+.eleccion small { display: block; color: var(--texto-suave); font-size: 14px; }
+#tirada, #anuncio {
+  position: absolute; pointer-events: none;
+  background: var(--madera-oscura); border: 1px solid var(--veta); border-radius: 6px;
+}
+#tirada { left: 14px; top: 102px; padding: 10px 14px; min-width: 250px; }
+#tirada .dado { width: 40px; height: 40px; font-size: 24px; }
+#tirada .rotulo { width: 76px; }
+#tirada .res { margin: 6px 0 0; color: var(--yerba); }
+#anuncio { left: 50%; top: 102px; transform: translateX(-50%); width: 320px; padding: 12px 16px; }
+#anuncio h1 { font-size: 22px; margin: 2px 0 4px; }
+#aviso-dados {
+  position: absolute; left: 50%; top: 102px; transform: translateX(-50%); pointer-events: none;
+  background: var(--madera-oscura); border: 1px solid var(--yerba); border-radius: 6px; padding: 8px 14px;
+}
+#pasar {
+  position: absolute; left: 50%; top: 40%; transform: translate(-50%, -50%); width: 300px;
+  background: var(--madera-oscura); border: 1px solid var(--yerba); border-radius: 6px; padding: 14px 16px;
+}
+#pasar button { min-width: 48px; font-size: 18px; }
+
+/* menú */
+#menu .columnas { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+#menu label { display: block; margin-bottom: 5px; cursor: pointer; }
+#menu input { accent-color: #A9C46C; }
+#menu select { margin-bottom: 8px; }
+#registro { margin: 0; padding-left: 18px; color: var(--texto-suave); font-size: 14px; }
+#registro li { margin-bottom: 3px; }
+#registro li:first-child { color: var(--texto); }
+.region img { width: 20px; height: 20px; background: var(--texto); border-radius: 4px; padding: 1px; vertical-align: middle; margin-right: 4px; object-fit: contain; }
+
+/* tutorial */
+#tutorial { position: absolute; width: 340px; padding: 14px 16px; border-color: var(--yerba); z-index: 5; }
+#tutorial .paso { color: var(--texto-suave); font-size: 13px; }
+.foco { outline: 3px solid var(--yerba); outline-offset: 3px; }
+
+.armado { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; margin-top: 6px; }
+#vista-brazo { background: var(--madera); border: 1px solid var(--veta); border-radius: 6px; }
+.campos { display: grid; gap: 8px; }
+.campos label { display: grid; gap: 2px; color: var(--texto-suave); }
+
+@media (max-width: 820px) {
+  #hud { flex-wrap: wrap; gap: 8px; }
+  #acciones { left: 16px; right: 16px; width: auto; top: auto; bottom: 190px; max-height: 30vh; }
+  #abajo { overflow-x: auto; padding: 8px 16px; }
+  #pactos { display: none; }
+  #menu .columnas { grid-template-columns: 1fr; }
+}
+</style>
+<script src="lib/motor.js"></script>
+<script src="data.js"></script>
+<script src="mesa.js"></script>
+<script src="juego.js"></script>
+</head>
+<body>
+<div id="app">
+  <canvas id="lienzo"></canvas>
+  <div id="tip"></div>
+
+  <header id="hud">
+    <div class="bloque"><small>TEG La Pampa</small><b id="ronda">Partida sin empezar</b></div>
+    <div class="bloque"><small id="turno-quien">Turno</small><b id="turno-fase"></b></div>
+    <div id="marcador"></div>
+    <div id="camara" title="También con el teclado: flechas o WASD para correr, Q y E para girar, + y - para acercar, R para la vista general"><button id="c-acercar">Acercar</button><button id="c-alejar">Alejar</button><button id="c-general">Vista general</button></div>
+    <button id="b-menu">Menú</button>
+  </header>
+
+  <aside id="acciones" class="tabla-oscura"></aside>
+
+  <footer id="abajo">
+    <div class="grupo"><small>Carta de la ronda</small><div id="carta"></div></div>
+    <div class="grupo"><small>Tu objetivo y tus tarjetas de país</small><div id="mano" class="naipes"></div></div>
+    <div id="pactos" class="tabla-oscura"></div>
+  </footer>
+
+  <div id="anuncio" class="oculto"></div>
+  <div id="tirada" class="oculto"></div>
+  <div id="pasar" class="oculto"></div>
+  <div id="aviso-dados" class="oculto"></div>
+
+  <div id="menu" class="capa oculto">
+    <h1>Menú</h1>
+    <div class="botones" style="margin-bottom:14px">
+      <button class="principal" id="b-seguir">Volver a la partida</button>
+      <button id="b-tutorial">Cómo se juega</button>
+    </div>
+    <div class="columnas">
+      <div>
+        <h2>La mesa</h2>
+        <label><input type="checkbox" id="o-rol" checked> Muñequitos en vez de fichas (Salitral con gorra, Mate con boina, Caldén con sombrero, autónomas con vincha)</label>
+        <label><input type="checkbox" id="o-dados" checked> Tirar los dados en la bandeja</label>
+        <label><input type="checkbox" id="o-defensa" checked> Defenderte con tus dados cuando te atacan</label>
+        <label><input type="checkbox" id="o-brazo" checked> Brazos que mueven las piezas</label>
+        <h2 style="margin-top:12px">Ritmo y música</h2>
+        <label for="ritmo">Ritmo de la IA</label>
+        <select id="ritmo">
+          <option value="500">Pausado</option>
+          <option value="120" selected>Rápido</option>
+          <option value="0">Sin pausa</option>
+        </select>
+        <label for="tema">Música</label>
+        <select id="tema">
+          <option value="fusion4.mp3">Fusion4</option>
+          <option value="folklore.ogg">Folklore</option>
+          <option value="zamba.mp3">Zamba</option>
+          <option value="cuarteto.ogg">Cuarteto</option>
+          <option value="rock.ogg">Rock</option>
+          <option value="rap.ogg">Rap</option>
+        </select>
+        <div><button id="musica">Prender o apagar la música</button></div>
+      </div>
+      <div>
+        <h2>Lo que pasó</h2>
+        <ol id="registro"></ol>
+      </div>
+    </div>
+    <h2 style="margin-top:14px">Regiones y bonos</h2>
+    <div id="regiones"></div>
+  </div>
+
+  <div id="inicio" class="capa">
+    <h1>TEG La Pampa</h1>
+    <p>Las 80 localidades cabecera con la forma real de su ejido, el relieve de la provincia y la población de cada una. Cuatro Alianzas arrancan con 15 localidades cada una, sorteadas por toda la provincia; las otras 20 son autónomas y se defienden con lo que les da su población.</p>
+    <p>Arrastrá para girar el tablero, la rueda acerca y aleja, con el botón derecho lo corrés. Con el teclado: flechas o WASD corren, Q y E giran, + y - acercan, R vuelve a la vista general. Al elegir tu Alianza arranca un tutorial corto.</p>
+    <h2 style="margin-top:12px">Tu mano en la mesa</h2>
+    <div class="armado">
+      <canvas id="vista-brazo" width="300" height="196"></canvas>
+      <div class="campos">
+        <label>Piel <select id="b-piel">
+          <option value="#E8C4A0">Clara</option><option value="#C99B76" selected>Trigueña</option>
+          <option value="#9C6B48">Morena</option><option value="#5E3B26">Oscura</option>
+        </select></label>
+        <label>Manga <select id="b-manga">
+          <option value="alianza" selected>Color de tu Alianza</option><option value="#6E2A2A">Poncho bordó</option>
+          <option value="#2F4A6B">Grafa azul</option><option value="#6F6A60">Gris de campo</option><option value="#3F5233">Verde monte</option>
+        </select></label>
+        <label>Puño <select id="b-puno">
+          <option value="liso">Liso</option><option value="guarda" selected>Con guarda pampa</option><option value="arremangada">Arremangada</option>
+        </select></label>
+        <label>En la muñeca <select id="b-acc">
+          <option value="ninguno">Nada</option><option value="reloj" selected>Reloj</option>
+          <option value="pulsera">Pulsera de cuero</option><option value="anillo">Anillo</option>
+        </select></label>
+      </div>
+    </div>
+    <h2 style="margin-top:12px">Elegí tu Alianza</h2>
+    <div class="eleccion" id="eleccion"></div>
+  </div>
+
+  <div id="tutorial" class="capa oculto"></div>
+  <div id="final" class="capa oculto"></div>
+</div>
+<script>iniciar(THREE, OrbitControls, CANNON);</script>
+</body>
+</html>
