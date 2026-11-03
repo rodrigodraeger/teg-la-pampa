@@ -22,7 +22,7 @@ async function iniciar(THREE, OrbitControls, CANNON) {
     { nombre: 'Guardianes del Mate', corto: 'Mate', color: '#5E8A2E', tinta: '#121C06',
       forma: 'mate con bombilla', trama: 'rayas', icono: D.iconos['Mate'] },
     { nombre: 'Guardianes del Caldén', corto: 'Caldén', color: '#A4462F', tinta: '#250C05',
-      forma: 'caldén', trama: 'cuadriculado', icono: D.iconos['Caldén'] },
+      forma: 'caldén', trama: 'damero', icono: D.iconos['Caldén'] },
     { nombre: 'Guardianes del Ñandú', corto: 'Ñandú', color: '#3E5C7A', tinta: '#0C1622',
       forma: 'huevo de ñandú', trama: 'cruces', icono: iconoNandu() },
   ];
@@ -39,7 +39,7 @@ async function iniciar(THREE, OrbitControls, CANNON) {
     'calma', 'calma', 'calma', 'calma'];
   const PARES = [['Oeste', 'Salinas'], ['Centro', 'Este'], ['Trigo', 'Comercial'],
     ['Ruta 188', 'Caldenal'], ['Centro', 'Caldenal'], ['Salinas', 'Este']];
-  const META = 45, MINIMO_REGIONES = 30, TURNO_CICLON = 30, RONDA_SISMO_DESDE = 12, RONDA_SISMO_MAX = 20;
+  const META = 40, MINIMO_REGIONES = 24, TURNO_CICLON = 30, RONDA_SISMO_DESDE = 16, RONDA_SISMO_MAX = 22;
 
   const vec = L.map(() => []);
   for (const [a, b] of D.ady) { vec[a].push(b); vec[b].push(a); }
@@ -56,6 +56,7 @@ async function iniciar(THREE, OrbitControls, CANNON) {
   const sonidos = Object.fromEntries(['dados', 'carta', 'aceptar', 'aplausos', 'mezclar', 'viento'].map(n => [n, new Audio('sonidos/' + n + '.mp3')]));
   const musica = new Audio('sonidos/musica/fusion4.mp3'); musica.loop = true; musica.volume = 0.35;
   const opt = id => $('#o-' + id).checked;
+  const GUARDADA = 'teg-la-pampa-partida';
   let ultimoDado = 0;
   const sonar = n => {
     if (n === 'dados') { if (performance.now() - ultimoDado < 700) return; ultimoDado = performance.now(); }
@@ -86,7 +87,7 @@ async function iniciar(THREE, OrbitControls, CANNON) {
   const E = {
     dueno: new Array(NL).fill(-1), tropas: new Array(NL).fill(0), ronda: 0, actual: 0, humano: 0,
     fase: 'refuerzos', porColocar: 0, sel: -1, disp: null, carta: 'calma', mazo: [], objetivos: [],
-    eliminadoPor: TODAS.map(() => -1), turnos: 0, aviso: '', terminado: false, iaJugando: false, registro: [], ultimaTirada: null, nombres: TODAS.map(() => ''), golpes: 0,
+    eliminadoPor: TODAS.map(() => -1), turnos: 0, aviso: '', terminado: false, iaJugando: false, registro: [], ultimaTirada: null, nombres: TODAS.map(() => ''), golpes: 0, puestos: [], mesa: [],
     mano: TODAS.map(() => []), mazoPais: [], canjes: TODAS.map(() => 0), anexoEnTurno: false, pactos: {}, propuesto: new Set(),
   };
 
@@ -188,11 +189,11 @@ async function iniciar(THREE, OrbitControls, CANNON) {
   }
 
   function cumplio(a) {
-    if (cuenta(a) >= META) return `llegó a ${META} localidades`;
+    if (cuenta(a) >= META) return `llegaron a ${META} localidades`;
     const o = E.objetivos[a];
-    if (o.tipo === 'destruir' && E.eliminadoPor[o.blanco] === a) return `destruyó a los ${ALIANZAS[o.blanco].nombre}`;
+    if (o.tipo === 'destruir' && E.eliminadoPor[o.blanco] === a) return `destruyeron a los ${ALIANZAS[o.blanco].nombre}`;
     if (o.tipo === 'regiones' && cuenta(a) >= MINIMO_REGIONES && o.regs.every(r => REG.find(R => R.nombre === r).locs.every(i => E.dueno[i] === a)))
-      return `completó las regiones ${o.regs[0]} y ${o.regs[1]} con ${cuenta(a)} localidades`;
+      return `completaron las regiones ${o.regs[0]} y ${o.regs[1]} con ${cuenta(a)} localidades`;
     return null;
   }
 
@@ -251,8 +252,8 @@ async function iniciar(THREE, OrbitControls, CANNON) {
           anotar(`Los ${ALIANZAS[previo].nombre} quedaron sin localidades; sus tarjetas pasan a ${ALIANZAS[a].corto}.`, a);
         }
         const logro = cumplio(a);
-        if (logro) terminar(a, `${ALIANZAS[a].nombre} ${logro}.`);
-        else if (ALIANZAS.filter((_, b) => cuenta(b) > 0).length === 1) terminar(a, `${ALIANZAS[a].nombre} quedó como única Alianza.`);
+        if (logro) terminar(a, `Los ${ALIANZAS[a].nombre} ${logro}.`);
+        else if (ALIANZAS.filter((_, b) => cuenta(b) > 0).length === 1) terminar(a, `Los ${ALIANZAS[a].nombre} quedaron como única Alianza.`);
       } else {
         E.tropas[t] = 1;
       }
@@ -273,7 +274,7 @@ async function iniciar(THREE, OrbitControls, CANNON) {
 
   function colocar(i, n) {
     E.tropas[i] += n; E.porColocar -= n; pintar();
-    if (E.actual === E.humano && !E.iaJugando) toc(n);
+    if (E.actual === E.humano && !E.iaJugando) { toc(n); E.puestos.push([i, n]); }
     mesa.tocar(E.actual, fichas[i].g.position);
   }
 
@@ -286,7 +287,7 @@ async function iniciar(THREE, OrbitControls, CANNON) {
   function nuevaRonda() {
     E.ronda++;
     if (E.ronda >= RONDA_SISMO_DESDE && (E.ronda >= RONDA_SISMO_MAX || Math.random() < 1 / 6)) {
-      const orden = TODAS.sort((x, y) => cuenta(y) - cuenta(x) || ejercitos(y) - ejercitos(x));
+      const orden = [...TODAS].sort((x, y) => cuenta(y) - cuenta(x) || ejercitos(y) - ejercitos(x));
       anotar(`Sismo al empezar la ronda ${E.ronda}.`);
       mesa.efecto('sismo'); sonar('viento');
       terminar(orden[0], `El sismo cortó la partida al empezar la ronda ${E.ronda}. Los ${ALIANZAS[orden[0]].nombre} tenían más localidades: ${cuenta(orden[0])}.`);
@@ -323,13 +324,14 @@ async function iniciar(THREE, OrbitControls, CANNON) {
       mesa.efecto('ciclon');
     }
     E.porColocar = refuerzos(E.actual);
-    E.anexoEnTurno = false; E.propuesto.clear(); E.golpes = 0;
+    E.anexoEnTurno = false; E.propuesto.clear(); E.golpes = 0; E.puestos = [];
     anotar(`Turno de ${ALIANZAS[E.actual].corto}: ${E.porColocar} ejércitos de refuerzo.`, E.actual);
     if (E.actual === E.humano) {
       const bono = E.porColocar - Math.max(3, Math.floor(cuenta(E.humano) / 2));
       avisar(`<b>+${E.porColocar}</b> ejércitos de refuerzo${bono ? `, ${bono} por regiones completas` : ''}`);
     }
     if (E.actual !== E.humano || E.mano[E.actual].length >= 5) canjear(E.actual);
+    localStorage.setItem(GUARDADA, JSON.stringify({ ...E, propuesto: [] }));
     actualizar();
     if (E.actual !== E.humano) jugarIA();
   }
@@ -358,6 +360,7 @@ async function iniciar(THREE, OrbitControls, CANNON) {
 
   function terminar(ganador, motivo) {
     E.terminado = true; E.sel = -1;
+    localStorage.removeItem(GUARDADA);
     if (ganador === E.humano) sonar('aplausos');
     $('#anuncio').classList.add('oculto');
     const el = $('#final');
@@ -371,7 +374,11 @@ async function iniciar(THREE, OrbitControls, CANNON) {
   }
 
   // ---------- IA ----------
-  const pausa = () => new Promise(r => setTimeout(r, +$('#ritmo').value));
+  const pausa = async () => {
+    await new Promise(r => setTimeout(r, +$('#ritmo').value));
+    while (!$('#menu').classList.contains('oculto') || document.hidden) await new Promise(r => setTimeout(r, 200));
+  };
+  const IA_ANEXIONES = 8;
 
   function interes(a, t) {
     let v = 1;
@@ -429,14 +436,14 @@ async function iniciar(THREE, OrbitControls, CANNON) {
     await pausa();
     if (E.fase === 'refuerzos') { iaColocar(a); actualizar(); await pausa(); pasarFase(); }
     if (E.fase === 'ataque') {
-      // la IA anexa como mucho 3 localidades por turno y solo ataca con ventaja clara
+      // la IA ataca con cualquier ventaja y elige primero lo que la acerca a su objetivo
       let anexadas = 0;
-      for (let n = 0; n < 120 && !E.terminado && anexadas < 3; n++) {
+      for (let n = 0; n < 120 && !E.terminado && anexadas < IA_ANEXIONES; n++) {
         let mejor = null, puntaje = -Infinity;
         for (const o of propias(a)) for (const t of vec[o]) {
           if (!puedeAtacar(o, t)) continue;
           const ventaja = E.tropas[o] - 1 - E.tropas[t];
-          if (ventaja < 2) continue;
+          if (ventaja < 1) continue;
           const p = ventaja + interes(a, t) * 1.5;
           if (p > puntaje) { puntaje = p; mejor = [o, t]; }
         }
@@ -458,7 +465,8 @@ async function iniciar(THREE, OrbitControls, CANNON) {
   // ---------- tablero 3D ----------
   const lienzo = $('#lienzo');
   const renderer = new THREE.WebGLRenderer({ canvas: lienzo, antialias: true });
-  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  // en pantallas muy densas (teléfonos) más de 1,5 píxeles por punto no se nota y cuesta el doble
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   const escena = new THREE.Scene();
   escena.background = new THREE.Color('#3E3226');
@@ -555,15 +563,17 @@ async function iniciar(THREE, OrbitControls, CANNON) {
     ex.fillStyle = '#F2ECDF'; ex.fillText(l.n, x, y + 22);
   });
 
+  // las tramas tienen que leerse con el tablero entero a la vista y sin depender del color:
+  // puntos, rayas, damero y cruces, gruesos y con la tinta oscura de cada Alianza
   function trama(a) {
-    const c = document.createElement('canvas'); c.width = c.height = 16;
+    const c = document.createElement('canvas'); c.width = c.height = 40;
     const g = c.getContext('2d');
-    g.fillStyle = ALIANZAS[a].color; g.fillRect(0, 0, 16, 16);
-    g.fillStyle = g.strokeStyle = ALIANZAS[a].tinta; g.lineWidth = 2;
-    if (a === 0) { g.beginPath(); g.arc(4, 4, 2, 0, 7); g.arc(12, 12, 2, 0, 7); g.fill(); }
-    if (a === 1) { g.beginPath(); g.moveTo(-4, 4); g.lineTo(4, -4); g.moveTo(0, 16); g.lineTo(16, 0); g.moveTo(12, 20); g.lineTo(20, 12); g.stroke(); }
-    if (a === 2) { g.strokeRect(0, 0, 8, 8); g.strokeRect(8, 8, 8, 8); }
-    if (a === 3) { g.beginPath(); g.moveTo(1, 1); g.lineTo(7, 7); g.moveTo(7, 1); g.lineTo(1, 7); g.moveTo(9, 9); g.lineTo(15, 15); g.moveTo(15, 9); g.lineTo(9, 15); g.stroke(); }
+    g.fillStyle = ALIANZAS[a].color; g.fillRect(0, 0, 40, 40);
+    g.fillStyle = g.strokeStyle = ALIANZAS[a].tinta; g.lineWidth = 6; g.lineCap = 'square';
+    if (a === 0) { g.beginPath(); g.arc(10, 10, 5.5, 0, 7); g.arc(30, 30, 5.5, 0, 7); g.fill(); }
+    if (a === 1) { g.beginPath(); for (const k of [-40, 0, 40]) { g.moveTo(k, 40); g.lineTo(k + 40, 0); } g.stroke(); }
+    if (a === 2) { g.fillRect(0, 0, 20, 20); g.fillRect(20, 20, 20, 20); }
+    if (a === 3) { g.beginPath(); for (const [x, y] of [[10, 10], [30, 30]]) { g.moveTo(x - 6, y - 6); g.lineTo(x + 6, y + 6); g.moveTo(x + 6, y - 6); g.lineTo(x - 6, y + 6); } g.stroke(); }
     return c;
   }
   const tex = nuevoLienzo(), tx = tex.getContext('2d');
@@ -579,7 +589,7 @@ async function iniciar(THREE, OrbitControls, CANNON) {
     for (let i = 0; i < NL; i++) {
       const d = E.dueno[i];
       if (d < 0) { tx.globalAlpha = 0.18; tx.fillStyle = '#9A8F80'; tx.fill(caminos[i]); continue; }
-      tx.globalAlpha = 0.5; tx.fillStyle = tramas[d]; tx.fill(caminos[i]);
+      tx.globalAlpha = 0.62; tx.fillStyle = tramas[d]; tx.fill(caminos[i]);
     }
     tx.globalAlpha = 0.9; tx.strokeStyle = '#1A140E'; tx.lineWidth = 1.5;
     caminos.forEach(p => tx.stroke(p));
@@ -900,7 +910,7 @@ async function iniciar(THREE, OrbitControls, CANNON) {
     if (u.conquista) {
       bandera = new THREE.Group();
       const palo = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 16, 6), MAT.oscuro); palo.position.y = 8; bandera.add(palo);
-      const tex = new THREE.CanvasTexture(trama(u.a)); tex.wrapS = tex.wrapT = THREE.RepeatWrapping; tex.repeat.set(3, 2); tex.colorSpace = THREE.SRGBColorSpace;
+      const tex = new THREE.CanvasTexture(trama(u.a)); tex.wrapS = tex.wrapT = THREE.RepeatWrapping; tex.repeat.set(1.5, 1); tex.colorSpace = THREE.SRGBColorSpace;
       const pano = new THREE.Mesh(new THREE.PlaneGeometry(8, 5), new THREE.MeshStandardMaterial({ map: tex, side: THREE.DoubleSide }));
       pano.position.set(4, 13.5, 0); bandera.add(pano);
       bandera.position.copy(ft.g.position); bandera.visible = false; escena.add(bandera);
@@ -967,7 +977,7 @@ async function iniciar(THREE, OrbitControls, CANNON) {
     renderer.setSize(r.width, r.height, false);
     camara.aspect = r.width / r.height; camara.updateProjectionMatrix();
   }
-  addEventListener('resize', redimensionar);
+  addEventListener('resize', () => { redimensionar(); actualizar(); });
   redimensionar();
   function cuadro() {
     requestAnimationFrame(cuadro);
@@ -1113,7 +1123,7 @@ async function iniciar(THREE, OrbitControls, CANNON) {
     $('#turno-quien').textContent = empezada ? `Turno ${Math.max(1, E.turnos)}: ${ALIANZAS[a].corto}${a === E.humano ? ' (vos)' : ''}` : 'Turno';
     $('#turno-fase').textContent = E.terminado ? 'Partida terminada' : !empezada ? '' : fases[E.fase] + (E.fase === 'refuerzos' ? `, ${E.porColocar} por ubicar` : '');
     $('#marcador').innerHTML = TODAS.map(b => `<div class="ficha-hud${b === a && empezada && !E.terminado ? ' turno' : ''}${cuenta(b) ? '' : ' fuera'}">
-        <img src="${ALIANZAS[b].icono}" alt=""><span>${ALIANZAS[b].corto}${b === E.humano ? ' <span class="vos">(vos)</span>' : E.nombres[b] ? ', ' + E.nombres[b] : ''}${b === a && empezada && !E.terminado ? ', juega' : ''}</span>
+        <img src="${ALIANZAS[b].icono}" alt=""><span>${ALIANZAS[b].corto}${b === E.humano && empezada ? ' <span class="vos">(vos)</span>' : E.nombres[b] ? `<span class="quien">, ${E.nombres[b]}</span>` : ''}${b === a && empezada && !E.terminado ? ', juega' : ''}</span>
         <small>${cuenta(b)} loc., ${ejercitos(b)} ej., ${E.mano[b].length} tarj.</small></div>`).join('')
       + `<div class="ficha-hud sin-icono"><span>Autónomas</span><small>${cuenta(-1)} loc., ${ejercitos(-1)} ej.</small></div>`;
 
@@ -1127,7 +1137,7 @@ async function iniciar(THREE, OrbitControls, CANNON) {
     else if (E.rafaga) acc = `<p>Atacando ${L[E.ultimaTirada.t].n} hasta anexarla o quedarte con un ejército.</p>`;
     else if (E.fase === 'refuerzos') {
       acc = `<p>Tenés <b>${E.porColocar}</b> ejércitos para ubicar. Tocá una localidad tuya (las marca un aro de luz) para sumarle uno; con Mayús sumás cinco.</p>
-        <div class="botones"><button class="principal" id="b-fase" ${E.porColocar ? 'disabled' : ''}>Pasar al ataque</button><button id="b-ia">Que la IA juegue mi turno</button></div>`;
+        <div class="botones"><button class="principal" id="b-fase" ${E.porColocar ? 'disabled' : ''}>Pasar al ataque</button><button id="b-deshacer" ${E.puestos.length ? '' : 'disabled'}>Deshacer el último</button><button id="b-ia">Que la IA juegue mi turno</button></div>`;
     } else if (E.fase === 'ataque') {
       const bl = blancos();
       acc = E.sel < 0
@@ -1145,6 +1155,7 @@ async function iniciar(THREE, OrbitControls, CANNON) {
     }
     $('#acciones').innerHTML = '<h2>Qué hacer</h2>' + acc;
     const bf = $('#b-fase'); if (bf) bf.onclick = () => { sonar('aceptar'); pasarFase(); };
+    const bd = $('#b-deshacer'); if (bd) bd.onclick = () => { const [i, n] = E.puestos.pop(); E.tropas[i] -= n; E.porColocar += n; toc(1); actualizar(); };
     const bi = $('#b-ia'); if (bi) bi.onclick = () => { sonar('aceptar'); E.sel = -1; jugarIA(); };
     const bh = $('#b-hasta'); if (bh) bh.onclick = () => atacarHasta(E.ultimaTirada.o, E.ultimaTirada.t);
     document.querySelectorAll('#acciones [data-t]').forEach(b => { b.onclick = ev => tocar(+b.dataset.t, ev.shiftKey); });
@@ -1167,10 +1178,9 @@ async function iniciar(THREE, OrbitControls, CANNON) {
       <div class="botones">${libre ? otras.filter(b => !enPacto(E.humano, b) && !E.propuesto.has(b)).map(b => `<button data-pacto="${b}">Proponer a ${ALIANZAS[b].corto}</button>`).join('') : ''}</div>
       <p class="sub" style="font-size:13px">No atacarse durante ${RONDAS_PACTO} rondas.</p>`;
     document.querySelectorAll('[data-pacto]').forEach(b => { b.onclick = () => proponerPacto(+b.dataset.pacto); });
-    // la mesa de abajo cambia de alto con los pactos y los naipes: la columna y los carteles quedan encima
-    const piso = $('#abajo').offsetHeight + 10 + 'px';
-    $('#lado').style.bottom = piso;
-    $('#avisos').style.bottom = innerWidth > 820 ? piso : '';
+    // la barra y la mesa de abajo cambian de alto según la pantalla y lo que haya en juego: los cuadros se apoyan en ellas
+    $('#app').style.setProperty('--techo', $('#hud').offsetHeight + 8 + 'px');
+    $('#app').style.setProperty('--piso', $('#abajo').offsetHeight + 8 + 'px');
 
     $('#regiones').innerHTML = '<table>' + REG.map(R => {
       const ds = [...new Set(R.locs.map(i => E.dueno[i]))];
@@ -1230,6 +1240,15 @@ async function iniciar(THREE, OrbitControls, CANNON) {
   $('#o-rol').onchange = () => pintar();
   $('#o-brazo').onchange = () => mesa.mostrarBrazos(opt('brazo'));
 
+  // las opciones quedan como las dejaste; en el teléfono los brazos arrancan apagados porque pesan
+  const OPCIONES = 'teg-la-pampa-opciones', CAMPOS = ['#o-rol', '#o-dados', '#o-defensa', '#o-brazo', '#ritmo', '#tema'];
+  const valorDe = el => el.type === 'checkbox' ? el.checked : el.value;
+  const previas = JSON.parse(localStorage.getItem(OPCIONES));
+  if (previas) CAMPOS.forEach(c => { if (c in previas) $(c)[$(c).type === 'checkbox' ? 'checked' : 'value'] = previas[c]; });
+  else if (matchMedia('(max-width: 820px)').matches) $('#o-brazo').checked = false;
+  musica.src = 'sonidos/musica/' + $('#tema').value;
+  CAMPOS.forEach(c => $(c).addEventListener('change', () => localStorage.setItem(OPCIONES, JSON.stringify(Object.fromEntries(CAMPOS.map(k => [k, valorDe($(k))]))))));
+
   // ---------- tu mano: elección y vista previa ----------
   const estiloElegido = a => ({ piel: $('#b-piel').value, manga: $('#b-manga').value === 'alianza' ? ALIANZAS[a].color : $('#b-manga').value, puno: $('#b-puno').value, accesorio: $('#b-acc').value });
   const previa = new THREE.WebGLRenderer({ canvas: $('#vista-brazo'), antialias: true, alpha: true });
@@ -1268,15 +1287,40 @@ async function iniciar(THREE, OrbitControls, CANNON) {
         { nombre: 'Hugo', piel: '#C99B76', pelo: '#BDB6AA', cara: 'barba', cuello: 'poncho', poncho: '#6E2A2A', utileria: 'cuaderno', puno: 'liso', accesorio: 'reloj' }];
       const [m, v] = [mezclar(MUJERES), mezclar(VARONES)];
       const rivales = mezclar([m[0], v[0], mezclar([m[1], v[1]])[0]]).map((r, k) => ({ ...r, asiento: ['oeste', 'norte', 'este'][k] }));
-      ALIANZAS.forEach((al, a) => {
-        if (a === E.humano) mesa.sumarBrazo(a, estiloElegido(a), 'sur');
-        else { const r = rivales.shift(); E.nombres[a] = r.nombre; mesa.sumarBrazo(a, { ...r, manga: al.color, tinta: al.tinta, sombrero: ['gorra', 'boina', 'sombrero', 'gorro'][a] }, r.asiento); }
+      E.mesa = ALIANZAS.map((al, a) => {
+        if (a === E.humano) return { a, estilo: estiloElegido(a), asiento: 'sur' };
+        const r = rivales.shift(); E.nombres[a] = r.nombre;
+        return { a, estilo: { ...r, manga: al.color, tinta: al.tinta, sombrero: ['gorra', 'boina', 'sombrero', 'gorro'][a] }, asiento: r.asiento };
       });
-      mesa.mostrarBrazos(opt('brazo'));
+      sentar();
       nuevaRonda(); E.actual = 0;
       tutorial(empezarTurno);
     };
   });
+  function sentar() {
+    E.mesa.forEach(({ a, estilo, asiento }) => mesa.sumarBrazo(a, estilo, asiento));
+    mesa.mostrarBrazos(opt('brazo'));
+  }
+
+  // partida guardada: se retoma al principio del turno en que quedó
+  const guardada = JSON.parse(localStorage.getItem(GUARDADA));
+  if (guardada) {
+    const el = $('#guardada');
+    el.innerHTML = `<p>Tenés una partida guardada: ronda ${guardada.ronda}, jugás con los ${ALIANZAS[guardada.humano].nombre}, ${guardada.dueno.filter(d => d === guardada.humano).length} localidades.</p>
+      <div class="botones"><button class="principal" id="b-retomar">Seguir esa partida</button></div>
+      <p class="sub">Si elegís una Alianza abajo, empieza una partida nueva y la guardada se pierde.</p>`;
+    el.classList.remove('oculto');
+    $('#b-retomar').onclick = () => {
+      sonar('aceptar');
+      Object.assign(E, guardada, { propuesto: new Set(), sel: -1, iaJugando: false, lanzando: false, rafaga: false, enTutorial: false });
+      $('#inicio').classList.add('oculto');
+      sentar();
+      mesa.soltarCarta(CARTAS[E.carta].nombre, CARTAS[E.carta].texto, 0);
+      mesa.efecto(E.carta);
+      actualizar();
+      if (E.actual !== E.humano) jugarIA();
+    };
+  }
   repartir();
   actualizar();
   requestAnimationFrame(cuadro);
