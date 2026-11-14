@@ -168,7 +168,7 @@ td.n { text-align: right; font-variant-numeric: tabular-nums; }
 #anuncio { left: 50%; top: var(--techo, 102px); transform: translateX(-50%); width: 320px; padding: 12px 16px; }
 #anuncio h1 { font-size: 22px; margin: 2px 0 4px; }
 #aviso-dados {
-  position: absolute; left: 50%; top: var(--techo, 102px); transform: translateX(-50%); pointer-events: none;
+  position: absolute; left: 14px; top: var(--techo, 102px); max-width: 300px; pointer-events: none;
   background: var(--madera-oscura); border: 1px solid var(--yerba); border-radius: 6px; padding: 8px 14px;
 }
 #pasar {
@@ -228,6 +228,7 @@ td.n { text-align: right; font-variant-numeric: tabular-nums; }
 <script src="lib/motor.js"></script>
 <script src="data.js"></script>
 <script src="mesa.js"></script>
+<script src="reglas.js"></script>
 <script src="juego.js"></script>
 </head>
 <body>
@@ -247,7 +248,7 @@ td.n { text-align: right; font-variant-numeric: tabular-nums; }
     <aside id="acciones" class="tabla-oscura"></aside>
     <section id="cronica" class="tabla-oscura"><h2>Crónica</h2><ol id="registro"></ol></section>
   </div>
-  <div id="avisos"></div>
+  <div id="avisos" aria-live="polite"></div>
 
   <footer id="abajo">
     <div class="grupo"><small>Carta de la ronda</small><div id="carta"></div></div>
@@ -255,7 +256,7 @@ td.n { text-align: right; font-variant-numeric: tabular-nums; }
     <div id="pactos" class="tabla-oscura"></div>
   </footer>
 
-  <div id="anuncio" class="oculto"></div>
+  <div id="anuncio" class="oculto" aria-live="polite"></div>
   <div id="tirada" class="oculto"></div>
   <div id="pasar" class="oculto"></div>
   <div id="aviso-dados" class="oculto"></div>
@@ -280,6 +281,12 @@ td.n { text-align: right; font-variant-numeric: tabular-nums; }
           <option value="500">Pausado</option>
           <option value="120" selected>Rápido</option>
           <option value="0">Sin pausa</option>
+        </select>
+        <label for="dificultad">Cómo juega la IA</label>
+        <select id="dificultad">
+          <option value="facil">Tranquila: ataca solo con buena ventaja</option>
+          <option value="normal" selected>Pareja: va contra quien está por ganar</option>
+          <option value="dificil">Brava: ataca más y frena antes a quien va primero</option>
         </select>
         <label for="tema">Música</label>
         <select id="tema">
@@ -332,7 +339,7 @@ td.n { text-align: right; font-variant-numeric: tabular-nums; }
   </div>
 
   <div id="tutorial" class="capa oculto"></div>
-  <div id="final" class="capa oculto"></div>
+  <div id="final" class="capa oculto" role="alertdialog" aria-live="assertive"></div>
 </div>
 <script>iniciar(THREE, OrbitControls, CANNON);</script>
 </body>

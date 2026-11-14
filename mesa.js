@@ -113,8 +113,11 @@ window.crearMesa = function (THREE, CANNON, { escena, camara, controles, lienzo,
       await new Promise(r => {
         soltar = r;
         const mov = ev => { const p = sobrePlano(ev, altura); if (p) { mano.copy(p); muestras.push([p.clone(), performance.now()]); if (muestras.length > 6) muestras.shift(); } };
-        const arriba = () => { lienzo.removeEventListener('pointermove', mov); lienzo.removeEventListener('pointerup', arriba); removeEventListener('keydown', tecla); r(); };
+        // el lienzo se queda con el puntero mientras arrastrás: si soltás afuera, los dados se tiran igual
+        const abajo = ev => lienzo.setPointerCapture(ev.pointerId);
+        const arriba = () => { lienzo.removeEventListener('pointerdown', abajo); lienzo.removeEventListener('pointermove', mov); lienzo.removeEventListener('pointerup', arriba); removeEventListener('keydown', tecla); r(); };
         const tecla = ev => { if (ev.code === 'Space') { ev.preventDefault(); muestras.length = 0; arriba(); } };
+        lienzo.addEventListener('pointerdown', abajo);
         lienzo.addEventListener('pointermove', mov);
         lienzo.addEventListener('pointerup', arriba);
         addEventListener('keydown', tecla);
@@ -268,6 +271,38 @@ window.crearMesa = function (THREE, CANNON, { escena, camara, controles, lienzo,
     return t;
   }
   const claro = hex => { const c = new THREE.Color(hex); return c.r * 0.3 + c.g * 0.59 + c.b * 0.11 > 0.45; };
+  // las piezas quietas de un mismo padre se sueldan en una malla por cada clase de material, con el color en
+  // cada vértice: una persona o una mano pasan de decenas de dibujos por cuadro a unos pocos
+  function soldar(padre, sueltas = []) {
+    const grupos = new Map();
+    padre.children.filter(m => m.isMesh && !sueltas.includes(m)).forEach(m => {
+      const t = m.material;
+      const clave = [t.map?.uuid, t.bumpMap?.uuid, t.bumpScale, t.roughness, t.metalness, t.side].join('|');
+      if (!grupos.has(clave)) grupos.set(clave, []);
+      grupos.get(clave).push(m);
+    });
+    for (const mallas of grupos.values()) {
+      if (mallas.length < 2) continue;
+      const geos = mallas.map(m => { m.updateMatrix(); const g = m.geometry.index ? m.geometry.toNonIndexed() : m.geometry.clone(); g.applyMatrix4(m.matrix); return [g, m.material.color]; });
+      const n = geos.reduce((s, [g]) => s + g.attributes.position.count, 0);
+      const pos = new Float32Array(n * 3), nor = new Float32Array(n * 3), uv = new Float32Array(n * 2), col = new Float32Array(n * 3);
+      let o = 0;
+      geos.forEach(([g, c]) => {
+        const k = g.attributes.position.count;
+        pos.set(g.attributes.position.array, o * 3); nor.set(g.attributes.normal.array, o * 3); uv.set(g.attributes.uv.array, o * 2);
+        for (let v = o; v < o + k; v++) { col[v * 3] = c.r; col[v * 3 + 1] = c.g; col[v * 3 + 2] = c.b; }
+        o += k; g.dispose();
+      });
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+      geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+      geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+      geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+      const mat = mallas[0].material.clone(); mat.color.set('#FFFFFF'); mat.vertexColors = true;
+      mallas.forEach(m => padre.remove(m));
+      padre.add(new THREE.Mesh(geo, mat));
+    }
+  }
   // piel con manchas y poros dibujados: el color liso es lo que la hacía de maniquí
   const texPiel = (() => {
     const c = document.createElement('canvas'); c.width = c.height = 256;
@@ -351,6 +386,7 @@ window.crearMesa = function (THREE, CANNON, { escena, camara, controles, lienzo,
       const r = DEDOS[2][3];
       parte(new THREE.TorusGeometry(r * 1.02, 0.28, 8, 18), new THREE.MeshStandardMaterial({ color: '#B89B5E', metalness: 0.8, roughness: 0.25 }), [0, 0, 1.0], [1, 1, 1], dedos[2]);
     }
+    soldar(mano);
     g.add(mano);
     const k = estilo.escala || 1, RS = R_SUP * k, RI = R_INF * k;
     mano.scale.set((estilo.espejo ? -1.6 : 1.6) * k, 1.6 * k, 1.6 * k);
@@ -464,6 +500,7 @@ window.crearMesa = function (THREE, CANNON, { escena, camara, controles, lienzo,
     const hombroDer = marca(-35, 64, 2), hombroIzq = marca(35, 64, 2);
     const apoyoDer = new THREE.Object3D(), apoyoIzq = new THREE.Object3D();
     apoyoDer.position.set(-30, 5, 36); apoyoIzq.position.set(32, 5, 32); grupo.add(apoyoDer, apoyoIzq);
+    soldar(cadera, [torso]); soldar(cabeza); soldar(grupo);
     let parpadeo = 0, proximo = 2000;
     return {
       grupo, hombroDer, hombroIzq, apoyoDer, apoyoIzq,

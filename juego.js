@@ -26,7 +26,10 @@ async function iniciar(THREE, OrbitControls, CANNON) {
     { nombre: 'Guardianes del Ñandú', corto: 'Ñandú', color: '#3E5C7A', tinta: '#0C1622',
       forma: 'huevo de ñandú', trama: 'cruces', icono: iconoNandu() },
   ];
-  const TODAS = ALIANZAS.map((_, a) => a);
+  const reglas = window.Reglas.crear(D, Math.random);
+  const { E, TODAS, META, MINIMO_REGIONES, TURNO_CICLON, RONDA_SISMO_DESDE, RONDAS_PACTO, ESPERA_PACTO, NIVELES,
+    vec, REG, regionDe, mezclar, cuenta, ejercitos, valorCanje, trio, clavePacto, enPacto, puedeProponer,
+    repartir, sortearPrimero, puedeAtacar, tirar, dadosDeAtaque, resolverDados, anexar, iaColocar, iaElegirAtaque, iaReagrupar } = reglas;
   const AUTONOMA = { nombre: 'Autónoma', color: '#9A8F80', forma: 'mojón' };
   const CARTAS = {
     neblina: { nombre: 'Neblina', texto: 'Solo se puede atacar a localidades autónomas.' },
@@ -35,26 +38,12 @@ async function iniciar(THREE, OrbitControls, CANNON) {
     rutas: { nombre: 'Rutas cortadas', texto: 'Solo se ataca dentro de la misma región.' },
     calma: { nombre: 'Cielo despejado', texto: 'La ronda no trae nada especial.' },
   };
-  const MAZO = ['viento', 'viento', 'viento', 'cenizas', 'cenizas', 'cenizas', 'rutas', 'rutas',
-    'calma', 'calma', 'calma', 'calma'];
-  const PARES = [['Oeste', 'Salinas'], ['Centro', 'Este'], ['Trigo', 'Comercial'],
-    ['Ruta 188', 'Caldenal'], ['Centro', 'Caldenal'], ['Salinas', 'Este']];
-  const META = 40, MINIMO_REGIONES = 24, TURNO_CICLON = 30, RONDA_SISMO_DESDE = 16, RONDA_SISMO_MAX = 22;
-
-  const vec = L.map(() => []);
-  for (const [a, b] of D.ady) { vec[a].push(b); vec[b].push(a); }
-  const REG = D.regiones.map(nombre => ({ nombre, locs: L.flatMap((l, i) => l.r === nombre ? [i] : []) }));
-  for (const R of REG) {
-    const borde = R.locs.filter(i => vec[i].some(v => L[v].r !== R.nombre)).length;
-    R.bonus = Math.ceil(borde / 2);
-  }
-  const regionDe = i => REG.find(R => R.nombre === L[i].r);
 
   const $ = s => document.querySelector(s);
-  const mezclar = arr => { const a = arr.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
   const miles = n => n.toLocaleString('es-AR');
   const sonidos = Object.fromEntries(['dados', 'carta', 'aceptar', 'aplausos', 'mezclar', 'viento'].map(n => [n, new Audio('sonidos/' + n + '.mp3')]));
-  const musica = new Audio('sonidos/musica/fusion4.mp3'); musica.loop = true; musica.volume = 0.35;
+  // la música no se baja hasta que alguien la prende: son casi medio mega que no hacen falta para jugar
+  const musica = new Audio(); musica.preload = 'none'; musica.loop = true; musica.volume = 0.35;
   const opt = id => $('#o-' + id).checked;
   const GUARDADA = 'teg-la-pampa-partida';
   let ultimoDado = 0;
@@ -83,65 +72,17 @@ async function iniciar(THREE, OrbitControls, CANNON) {
     }
   }
 
-  // ---------- estado ----------
-  const E = {
-    dueno: new Array(NL).fill(-1), tropas: new Array(NL).fill(0), ronda: 0, actual: 0, humano: 0,
-    fase: 'refuerzos', porColocar: 0, sel: -1, disp: null, carta: 'calma', mazo: [], objetivos: [],
-    eliminadoPor: TODAS.map(() => -1), turnos: 0, aviso: '', terminado: false, iaJugando: false, registro: [], ultimaTirada: null, nombres: TODAS.map(() => ''), golpes: 0, puestos: [], mesa: [],
-    mano: TODAS.map(() => []), mazoPais: [], canjes: TODAS.map(() => 0), anexoEnTurno: false, pactos: {}, propuesto: new Set(),
-  };
-
-  // ---------- tarjetas de país, como en el TEG: una por turno con anexión, tres se canjean por ejércitos ----------
-  const SIMBOLOS = ['caldén', 'molino', 'tranquera'];
-  const tarjeta = i => i < 0 ? { loc: -1, simbolo: 'comodín' } : { loc: i, simbolo: SIMBOLOS[i % 3] };
-  const valorCanje = n => n < 3 ? [4, 7, 10][n] : 10 + 5 * (n - 2);
-  function trio(mano) {
-    for (let x = 0; x < mano.length; x++) for (let y = x + 1; y < mano.length; y++) for (let z = y + 1; z < mano.length; z++) {
-      const s = [mano[x], mano[y], mano[z]].map(c => c.simbolo).filter(v => v !== 'comodín');
-      if (new Set(s).size === 1 || new Set(s).size === s.length) return [x, y, z];
-    }
-    return null;
-  }
-  function robar(a) {
-    if (!E.mazoPais.length) {
-      const enMano = new Set(E.mano.flat().map(c => c.loc));
-      E.mazoPais = mezclar([-1, -2, ...L.map((_, i) => i)].filter(i => !enMano.has(i)).map(i => tarjeta(i < 0 ? -1 : i)));
-    }
-    const c = E.mazoPais.pop();
-    E.mano[a].push(c);
-    let extra = '';
-    if (c.loc >= 0 && E.dueno[c.loc] === a) { E.tropas[c.loc] += 2; extra = `, que es suya: suma 2 ejércitos ahí`; }
-    anotar(`${ALIANZAS[a].corto} sacó tarjeta: ${c.loc < 0 ? 'comodín' : L[c.loc].n + ' (' + c.simbolo + ')'}${extra}.`, a);
-    if (a === E.humano) {
-      sonar('carta');
-      avisar(`<b>+1</b> tarjeta de país: ${c.loc < 0 ? 'comodín' : L[c.loc].n + ', ' + c.simbolo}`);
-      if (extra) avisar(`<b>+2</b> ejércitos en ${L[c.loc].n}: la tarjeta es tuya`);
-    }
-  }
-  function canjear(a) {
-    const t = trio(E.mano[a]);
-    if (!t) return;
-    const suma = valorCanje(E.canjes[a]);
-    E.mano[a] = E.mano[a].filter((_, k) => !t.includes(k));
-    E.canjes[a]++; E.porColocar += suma;
+  function avisarCanje(a, suma) {
     anotar(`${ALIANZAS[a].corto} canjeó tres tarjetas: ${suma} ejércitos.`, a);
     if (a === E.humano) avisar(`<b>+${suma}</b> ejércitos por el canje de tarjetas`);
     sonar('mezclar');
   }
 
-  // ---------- pactos de no agresión ----------
-  const RONDAS_PACTO = 3;
-  const clavePacto = (a, b) => Math.min(a, b) + '-' + Math.max(a, b);
-  const enPacto = (a, b) => a >= 0 && b >= 0 && a !== b && E.pactos[clavePacto(a, b)] >= E.ronda;
   function proponerPacto(b) {
     const a = E.humano;
-    E.propuesto.add(b);
-    const o = E.objetivos[b];
-    const acepta = !(o.tipo === 'destruir' && o.blanco === a) && cuenta(a) <= cuenta(b) + 4 && cuenta(a) < META - 8;
-    if (acepta) {
-      E.pactos[clavePacto(a, b)] = E.ronda + RONDAS_PACTO - 1;
-      anotar(`Pacto con ${ALIANZAS[b].corto} hasta la ronda ${E.ronda + RONDAS_PACTO - 1}: no se atacan.`, b);
-      anunciar('Pacto', `${ALIANZAS[b].corto} acepta`, `No se atacan hasta la ronda ${E.ronda + RONDAS_PACTO - 1}.`);
+    if (reglas.proponerPacto(b)) {
+      anotar(`Pacto con ${ALIANZAS[b].corto} hasta tu turno de la ronda ${E.ronda + RONDAS_PACTO}: no se atacan.`, b);
+      anunciar('Pacto', `${ALIANZAS[b].corto} acepta`, `No se atacan hasta tu turno de la ronda ${E.ronda + RONDAS_PACTO}.`);
       sonar('aceptar');
     } else {
       anotar(`${ALIANZAS[b].corto} rechazó el pacto.`, b);
@@ -149,9 +90,6 @@ async function iniciar(THREE, OrbitControls, CANNON) {
     }
     actualizar();
   }
-  const cuenta = a => E.dueno.reduce((s, d) => s + (d === a), 0);
-  const ejercitos = a => E.tropas.reduce((s, t, i) => s + (E.dueno[i] === a ? t : 0), 0);
-  const propias = a => E.dueno.flatMap((d, i) => d === a ? [i] : []);
   const nombreDe = d => d < 0 ? 'autónoma' : ALIANZAS[d].corto;
   const anotar = (t, a = -1) => { E.registro.unshift({ t, a }); E.registro.length = Math.min(E.registro.length, 40); };
   function avisar(texto) {
@@ -162,59 +100,15 @@ async function iniciar(THREE, OrbitControls, CANNON) {
     setTimeout(() => el.remove(), 5000);
   }
 
-  // como en el TEG: las localidades se sortean, cada Alianza arranca desparramada por la provincia
-  function repartir() {
-    const mazo = mezclar(L.map((_, i) => i));
-    ALIANZAS.forEach((_, a) => mazo.slice(a * 15, a * 15 + 15).forEach(i => { E.dueno[i] = a; }));
-    for (let i = 0; i < NL; i++) E.tropas[i] = E.dueno[i] === -1 ? L[i].ej : 2;
-    const pares = mezclar(PARES);
-    E.objetivos = ALIANZAS.map((_, a) => Math.random() < 1 / 3
-      ? { tipo: 'destruir', blanco: (a + 1 + Math.floor(Math.random() * (TODAS.length - 1))) % TODAS.length }
-      : { tipo: 'regiones', regs: pares[a] });
-  }
-
-  // como en el TEG: si otra Alianza destruye a tu blanco, tu objetivo pasa a ser destruir a esa Alianza
-  function reasignarBlancos(eliminada, autora) {
-    E.objetivos.forEach((o, c) => {
-      if (o.tipo !== 'destruir' || o.blanco !== eliminada || c === autora) return;
-      o.blanco = autora;
-      if (c === E.humano) anunciar('Tu objetivo cambió', `Destruir a los ${ALIANZAS[autora].corto}`, `Los ${ALIANZAS[autora].nombre} destruyeron a tu blanco: ahora el blanco son ellos.`);
-    });
-  }
-
   function textoObjetivo(a) {
     const o = E.objetivos[a];
     if (o.tipo === 'destruir') return `Destruir a los ${ALIANZAS[o.blanco].nombre}: dejarlos sin ninguna localidad. Si otra Alianza los destruye antes, tu blanco pasa a ser esa Alianza.`;
     return `Tener completas las regiones ${o.regs[0]} y ${o.regs[1]}, y ${MINIMO_REGIONES} localidades en total.`;
   }
 
-  function cumplio(a) {
-    if (cuenta(a) >= META) return `llegaron a ${META} localidades`;
-    const o = E.objetivos[a];
-    if (o.tipo === 'destruir' && E.eliminadoPor[o.blanco] === a) return `destruyeron a los ${ALIANZAS[o.blanco].nombre}`;
-    if (o.tipo === 'regiones' && cuenta(a) >= MINIMO_REGIONES && o.regs.every(r => REG.find(R => R.nombre === r).locs.every(i => E.dueno[i] === a)))
-      return `completaron las regiones ${o.regs[0]} y ${o.regs[1]} con ${cuenta(a)} localidades`;
-    return null;
-  }
-
-  function refuerzos(a) {
-    let r = Math.max(3, Math.floor(cuenta(a) / 2));
-    for (const R of REG) if (R.locs.every(i => E.dueno[i] === a)) r += R.bonus;
-    return r;
-  }
-
-  function puedeAtacar(o, t) {
-    return E.dueno[o] === E.actual && E.dueno[t] !== E.actual && E.tropas[o] >= 2 && vec[o].includes(t) && !enPacto(E.actual, E.dueno[t]) &&
-      (E.carta !== 'neblina' || E.dueno[t] === -1) && (E.carta !== 'rutas' || L[o].r === L[t].r);
-  }
-
-  const tirar = n => Array.from({ length: n }, () => 1 + Math.floor(Math.random() * 6)).sort((x, y) => y - x);
-
   async function atacar(o, t) {
     const a = E.actual, previo = E.dueno[t];
-    const base = Math.min(3, E.tropas[o] - 1);
-    const da = base + (E.carta === 'viento' ? 1 : 0);
-    const dd = Math.min(3, E.tropas[t]) + (E.carta === 'cenizas' ? 1 : 0);
+    const { da, dd } = dadosDeAtaque(o, t);
     let A, B;
     mesa.tocar(a, fichas[t].g.position);
     const ataco = a === E.humano && !E.iaJugando, defiendo = a !== E.humano && previo === E.humano && opt('defensa');
@@ -228,143 +122,126 @@ async function iniciar(THREE, OrbitControls, CANNON) {
       A = tirar(da); B = tirar(dd);
       sonar('dados');
     }
-    let pa = 0, pd = 0;
-    for (let k = 0; k < Math.min(da, dd); k++) { if (A[k] > B[k]) pd++; else pa++; }
-    pa = Math.min(pa, base);
-    E.tropas[o] -= pa; E.tropas[t] -= pd;
-    if (previo === E.humano && a !== E.humano) E.golpes += pd;
-    E.ultimaTirada = { o, t, A, B, pa, pd, a, previo, conquista: false };
-    if (E.tropas[t] <= 0) {
-      if (E.tropas[o] >= 2) {
-        const tope = Math.min(3, E.tropas[o] - 1);
-        const mueve = a === E.humano && !E.iaJugando && tope > 1 ? await elegirCuantos(t, tope) : Math.max(1, Math.min(base, tope));
-        E.dueno[t] = a; E.tropas[t] = mueve; E.tropas[o] -= mueve;
-        E.ultimaTirada.conquista = true; E.anexoEnTurno = true;
-        golpe();
-        anotar(`${ALIANZAS[a].corto} anexó ${L[t].n} (era ${nombreDe(previo)}) y pasó ${mueve}.`, a);
-        if (previo === E.humano && a !== E.humano) avisar(`${E.nombres[a]}, de ${ALIANZAS[a].corto}, te anexó ${L[t].n}`);
-        const R = regionDe(t);
-        if (a === E.humano && R.locs.every(i => E.dueno[i] === a)) avisar(`Completaste ${R.nombre}: <b>+${R.bonus}</b> ejércitos por turno mientras la tengas`);
-        if (previo >= 0 && cuenta(previo) === 0) {
-          E.eliminadoPor[previo] = a;
-          reasignarBlancos(previo, a);
-          E.mano[a].push(...E.mano[previo]); E.mano[previo] = [];
-          anotar(`Los ${ALIANZAS[previo].nombre} quedaron sin localidades; sus tarjetas pasan a ${ALIANZAS[a].corto}.`, a);
-        }
-        const logro = cumplio(a);
-        if (logro) terminar(a, `Los ${ALIANZAS[a].nombre} ${logro}.`);
-        else if (ALIANZAS.filter((_, b) => cuenta(b) > 0).length === 1) terminar(a, `Los ${ALIANZAS[a].nombre} quedaron como única Alianza.`);
-      } else {
-        E.tropas[t] = 1;
+    const paso = resolverDados(o, t, A, B);
+    if (paso) {
+      const mueve = a === E.humano && !E.iaJugando && paso.tope > 1 ? await elegirCuantos(t, paso.tope) : paso.mueve;
+      const r = anexar(o, t, mueve);
+      golpe();
+      anotar(`${ALIANZAS[a].corto} anexó ${L[t].n} (era ${nombreDe(previo)}) y pasó ${mueve}.`, a);
+      if (previo === E.humano && a !== E.humano) avisar(`${E.nombres[a]}, de ${ALIANZAS[a].corto}, te anexó ${L[t].n}`);
+      const R = regionDe(t);
+      if (a === E.humano && R.locs.every(i => E.dueno[i] === a)) avisar(`Completaste ${R.nombre}: <b>+${R.bonus}</b> ejércitos por turno mientras la tengas`);
+      if (r.eliminada) {
+        if (r.cambiadas.includes(E.humano)) anunciar('Tu objetivo cambió', `Destruir a los ${ALIANZAS[a].corto}`, `Los ${ALIANZAS[a].nombre} destruyeron a tu blanco: ahora el blanco son ellos.`);
+        anotar(`Los ${ALIANZAS[previo].nombre} quedaron sin localidades; sus tarjetas pasan a ${ALIANZAS[a].corto}.`, a);
       }
+      const ob = E.objetivos[a];
+      if (r.logro) terminar(a, `Los ${ALIANZAS[a].nombre} ${r.logro === 'meta' ? `llegaron a ${META} localidades`
+        : r.logro === 'destruir' ? `destruyeron a los ${ALIANZAS[ob.blanco].nombre}`
+        : `completaron las regiones ${ob.regs[0]} y ${ob.regs[1]} con ${cuenta(a)} localidades`}.`);
+      else if (r.unica) terminar(a, `Los ${ALIANZAS[a].nombre} quedaron como única Alianza.`);
+      else if (previo === E.humano && cuenta(previo) === 0) derrota(a);
     }
     if (E.actual === E.humano || +$('#ritmo').value > 0) { mostrarTirada(E.ultimaTirada); efectoAtaque(E.ultimaTirada); }
     pintar();
   }
 
   function elegirCuantos(t, tope) {
-    E.lanzando = true; actualizar();
+    E.lanzando = true; E.eligiendo = true; actualizar();
     const el = $('#pasar');
     el.innerHTML = `<p>Anexaste <b>${L[t].n}</b>. ¿Cuántos ejércitos pasan?</p><div class="botones">${Array.from({ length: tope }, (_, k) => `<button${k === tope - 1 ? ' class="principal"' : ''} data-n="${k + 1}">${k + 1}</button>`).join('')}</div>`;
     el.classList.remove('oculto');
     return new Promise(listo => el.querySelectorAll('button').forEach(b => {
-      b.onclick = () => { el.classList.add('oculto'); E.lanzando = false; sonar('aceptar'); listo(+b.dataset.n); };
+      b.onclick = () => { el.classList.add('oculto'); E.lanzando = false; E.eligiendo = false; sonar('aceptar'); listo(+b.dataset.n); };
     }));
   }
 
   function colocar(i, n) {
-    E.tropas[i] += n; E.porColocar -= n; pintar();
+    reglas.colocar(i, n); pintar();
     if (E.actual === E.humano && !E.iaJugando) { toc(n); E.puestos.push([i, n]); }
     mesa.tocar(E.actual, fichas[i].g.position);
   }
 
   function mover(o, t, n) {
-    E.tropas[o] -= n; E.tropas[t] += n; E.disp[o] -= n; pintar();
+    reglas.mover(o, t, n); pintar();
     mesa.tocar(E.actual, fichas[t].g.position);
   }
 
   // ---------- rondas y turnos ----------
-  function nuevaRonda() {
-    E.ronda++;
-    if (E.ronda >= RONDA_SISMO_DESDE && (E.ronda >= RONDA_SISMO_MAX || Math.random() < 1 / 6)) {
-      const orden = [...TODAS].sort((x, y) => cuenta(y) - cuenta(x) || ejercitos(y) - ejercitos(x));
+  function contarRonda(r) {
+    if ('sismo' in r) {
       anotar(`Sismo al empezar la ronda ${E.ronda}.`);
       mesa.efecto('sismo'); sonar('viento');
-      terminar(orden[0], `El sismo cortó la partida al empezar la ronda ${E.ronda}. Los ${ALIANZAS[orden[0]].nombre} tenían más localidades: ${cuenta(orden[0])}.`);
+      terminar(r.sismo, `El sismo cortó la partida al empezar la ronda ${E.ronda}. Los ${ALIANZAS[r.sismo].nombre} tenían más localidades: ${cuenta(r.sismo)}.`);
       return;
     }
-    let mezclado = false;
-    if (E.ronda <= 2) E.carta = 'neblina';
-    else {
-      if (!E.mazo.length) { E.mazo = mezclar(MAZO); mezclado = true; }
-      E.carta = E.mazo.pop();
-    }
     anotar(`Ronda ${E.ronda}: ${CARTAS[E.carta].nombre}.`);
-    for (const [k, fin] of Object.entries(E.pactos)) if (fin < E.ronda) {
-      delete E.pactos[k];
-      const par = k.split('-').map(Number);
-      anotar(`Terminó el pacto entre ${par.map(b => ALIANZAS[b].corto).join(' y ')}.`);
-      if (par.includes(E.humano)) avisar(`Terminó tu pacto con ${ALIANZAS[par.find(b => b !== E.humano)].corto}: ya se pueden atacar`);
-    }
-    sonar(E.carta === 'viento' ? 'viento' : mezclado ? 'mezclar' : 'carta');
+    sonar(E.carta === 'viento' ? 'viento' : r.mezclado ? 'mezclar' : 'carta');
     anunciar(`Ronda ${E.ronda}`, CARTAS[E.carta].nombre, CARTAS[E.carta].texto);
     mesa.soltarCarta(CARTAS[E.carta].nombre, CARTAS[E.carta].texto, 0);
     mesa.efecto(E.carta);
   }
 
-  function empezarTurno() {
-    E.fase = 'refuerzos'; E.sel = -1;
-    E.turnos++;
-    if (E.turnos === TURNO_CICLON) {
-      for (let i = 0; i < NL; i++) if (E.tropas[i] > 2) E.tropas[i] -= Math.floor(E.tropas[i] / 3);
+  function contarTurno(t) {
+    if (t.ciclon) {
       E.aviso = `Turno ${TURNO_CICLON}: pasó el ciclón. Cada localidad con más de 2 ejércitos perdió un tercio.`;
       anotar(E.aviso);
       sonar('viento');
       anunciar('Ciclón', 'Pasó el ciclón', 'Cada localidad con más de 2 ejércitos perdió un tercio.');
       mesa.efecto('ciclon');
     }
-    E.porColocar = refuerzos(E.actual);
-    E.anexoEnTurno = false; E.propuesto.clear(); E.golpes = 0; E.puestos = [];
-    anotar(`Turno de ${ALIANZAS[E.actual].corto}: ${E.porColocar} ejércitos de refuerzo.`, E.actual);
-    if (E.actual === E.humano) {
-      const bono = E.porColocar - Math.max(3, Math.floor(cuenta(E.humano) / 2));
-      avisar(`<b>+${E.porColocar}</b> ejércitos de refuerzo${bono ? `, ${bono} por regiones completas` : ''}`);
+    for (const { par, otra } of t.vencidos) {
+      anotar(`Terminó el pacto entre ${par.map(b => ALIANZAS[b].corto).join(' y ')}.`);
+      if (par.includes(E.humano)) avisar(`Terminó tu pacto con ${ALIANZAS[otra].corto}: ya se pueden atacar`);
     }
-    if (E.actual !== E.humano || E.mano[E.actual].length >= 5) canjear(E.actual);
+    anotar(`Turno de ${ALIANZAS[E.actual].corto}: ${t.refuerzos} ejércitos de refuerzo.`, E.actual);
+    if (E.actual === E.humano) {
+      const bono = t.refuerzos - Math.max(3, Math.floor(cuenta(E.humano) / 2));
+      avisar(`<b>+${t.refuerzos}</b> ejércitos de refuerzo${bono ? `, ${bono} por regiones completas` : ''}`);
+    }
+    if (t.canje) avisarCanje(E.actual, t.canje);
     localStorage.setItem(GUARDADA, JSON.stringify({ ...E, propuesto: [] }));
     actualizar();
     if (E.actual !== E.humano) jugarIA();
   }
 
-  function siguienteTurno() {
-    if (E.terminado) return;
-    let a = E.actual;
-    do {
-      a++;
-      if (a >= TODAS.length) { a = 0; nuevaRonda(); if (E.terminado) return; }
-    } while (cuenta(a) === 0);
-    E.actual = a;
-    empezarTurno();
+  function pasarFase() {
+    const a = E.actual, p = reglas.pasarFase();
+    if (p.robo) {
+      const { c, suya } = p.robo;
+      anotar(`${ALIANZAS[a].corto} sacó tarjeta: ${c.loc < 0 ? 'comodín' : L[c.loc].n + ' (' + c.simbolo + ')'}${suya ? ', que es suya: suma 2 ejércitos ahí' : ''}.`, a);
+      if (a === E.humano) {
+        sonar('carta');
+        avisar(`<b>+1</b> tarjeta de país: ${c.loc < 0 ? 'comodín' : L[c.loc].n + ', ' + c.simbolo}`);
+        if (suya) avisar(`<b>+2</b> ejércitos en ${L[c.loc].n}: la tarjeta es tuya`);
+      }
+    }
+    if (p.ronda) contarRonda(p.ronda);
+    if (p.turno) contarTurno(p.turno);
+    else if (!E.terminado) actualizar();
   }
 
-  function pasarFase() {
-    if (E.fase === 'refuerzos') { E.fase = 'ataque'; }
-    else if (E.fase === 'ataque') {
-      if (E.anexoEnTurno) robar(E.actual);
-      E.fase = 'reagrupar';
-      E.disp = E.tropas.map((t, i) => E.dueno[i] === E.actual ? t - 1 : 0);
-    } else { siguienteTurno(); return; }
-    E.sel = -1;
-    actualizar();
+  const filasFinal = () => TODAS.map(a => `<tr><td><span class="alianza"><img src="${ALIANZAS[a].icono}" alt="">${ALIANZAS[a].nombre}${a === E.humano ? ' <span class="vos">(vos)</span>' : ''}</span></td><td class="n">${cuenta(a)} localidades</td></tr>`).join('');
+
+  // te dejaron sin localidades y la partida sigue entre las otras Alianzas: queda en pausa hasta que elijas
+  function derrota(a) {
+    $('#anuncio').classList.add('oculto');
+    const el = $('#final');
+    el.innerHTML = `<h1>Te dejaron sin localidades</h1>
+      <p>${E.nombres[a]}, de los ${ALIANZAS[a].nombre}, te anexó la última en la ronda ${E.ronda}. La partida sigue entre las otras Alianzas.</p><table>${filasFinal()}</table>
+      <div class="botones"><button class="principal" id="otra">Jugar otra partida</button><button id="mirar">Mirar cómo termina</button></div>`;
+    el.classList.remove('oculto');
+    $('#otra').onclick = () => { localStorage.removeItem(GUARDADA); location.reload(); };
+    $('#mirar').onclick = () => el.classList.add('oculto');
   }
 
   function terminar(ganador, motivo) {
-    E.terminado = true; E.sel = -1;
+    E.sel = -1;
     localStorage.removeItem(GUARDADA);
     if (ganador === E.humano) sonar('aplausos');
     $('#anuncio').classList.add('oculto');
     const el = $('#final');
-    const filas = TODAS.map(a => `<tr><td><span class="alianza"><img src="${ALIANZAS[a].icono}" alt="">${ALIANZAS[a].nombre}${a === E.humano ? ' <span class="vos">(vos)</span>' : ''}</span></td><td class="n">${cuenta(a)} localidades</td></tr>`).join('');
+    const filas = filasFinal();
     el.innerHTML = `<h1>${ganador === E.humano ? 'Ganaste' : 'Ganaron los ' + ALIANZAS[ganador].nombre}</h1>
       <p>${motivo}</p><p>Ronda ${E.ronda}.</p><table>${filas}</table>
       <div class="botones"><button class="principal" id="otra">Jugar otra partida</button></div>`;
@@ -376,78 +253,22 @@ async function iniciar(THREE, OrbitControls, CANNON) {
   // ---------- IA ----------
   const pausa = async () => {
     await new Promise(r => setTimeout(r, +$('#ritmo').value));
-    while (!$('#menu').classList.contains('oculto') || document.hidden) await new Promise(r => setTimeout(r, 200));
+    while (!$('#menu').classList.contains('oculto') || document.hidden || (!E.terminado && !$('#final').classList.contains('oculto'))) await new Promise(r => setTimeout(r, 200));
   };
-  const IA_ANEXIONES = 8;
-
-  function interes(a, t) {
-    let v = 1;
-    const o = E.objetivos[a], R = regionDe(t);
-    if (o.tipo === 'regiones' && o.regs.includes(L[t].r)) v += 2;
-    if (o.tipo === 'destruir' && E.dueno[t] === o.blanco) v += 3;
-    v += 2 * R.locs.filter(i => E.dueno[i] === a).length / R.locs.length;
-    return v;
-  }
-
-  function mejorOrigen(a) {
-    let mejor = -1, puntaje = -Infinity;
-    for (const o of propias(a)) for (const t of vec[o]) {
-      if (E.dueno[t] === a || enPacto(a, E.dueno[t])) continue;
-      if (E.carta === 'neblina' && E.dueno[t] !== -1) continue;
-      if (E.carta === 'rutas' && L[o].r !== L[t].r) continue;
-      const p = interes(a, t) * 2 + E.tropas[o] - E.tropas[t];
-      if (p > puntaje) { puntaje = p; mejor = o; }
-    }
-    if (mejor < 0) mejor = propias(a).find(o => vec[o].some(v => E.dueno[v] !== a)) ?? propias(a)[0];
-    return mejor;
-  }
-
-  function iaColocar(a) {
-    const o = mejorOrigen(a);
-    colocar(o, Math.ceil(E.porColocar * 0.65));
-    while (E.porColocar > 0) {
-      let elegido = o, peor = -Infinity;
-      for (const i of propias(a)) {
-        const amenaza = vec[i].reduce((s, v) => s + (E.dueno[v] >= 0 && E.dueno[v] !== a ? E.tropas[v] : 0), 0);
-        if (amenaza && amenaza - E.tropas[i] > peor) { peor = amenaza - E.tropas[i]; elegido = i; }
-      }
-      colocar(elegido, 1);
-    }
-  }
-
-  function iaReagrupar(a) {
-    const frente = new Set(propias(a).filter(i => vec[i].some(v => E.dueno[v] !== a)));
-    const dist = new Array(NL).fill(Infinity), cola = [...frente];
-    for (const i of frente) dist[i] = 0;
-    while (cola.length) {
-      const i = cola.shift();
-      for (const v of vec[i]) if (E.dueno[v] === a && dist[v] === Infinity) { dist[v] = dist[i] + 1; cola.push(v); }
-    }
-    for (const i of propias(a)) {
-      if (frente.has(i) || E.disp[i] <= 0 || dist[i] === Infinity) continue;
-      const destino = vec[i].filter(v => E.dueno[v] === a).sort((x, y) => dist[x] - dist[y])[0];
-      if (destino !== undefined && dist[destino] < dist[i]) mover(i, destino, E.disp[i]);
-    }
-  }
+  const nivel = () => NIVELES[$('#dificultad').value];
 
   async function jugarIA() {
     const a = E.actual;
     E.iaJugando = true; actualizar();
     await pausa();
-    if (E.fase === 'refuerzos') { iaColocar(a); actualizar(); await pausa(); pasarFase(); }
+    if (E.fase === 'refuerzos') {
+      for (const [i] of iaColocar(a, nivel())) mesa.tocar(a, fichas[i].g.position);
+      actualizar(); await pausa(); pasarFase();
+    }
     if (E.fase === 'ataque') {
-      // la IA ataca con cualquier ventaja y elige primero lo que la acerca a su objetivo
-      let anexadas = 0;
-      for (let n = 0; n < 120 && !E.terminado && anexadas < IA_ANEXIONES; n++) {
-        let mejor = null, puntaje = -Infinity;
-        for (const o of propias(a)) for (const t of vec[o]) {
-          if (!puedeAtacar(o, t)) continue;
-          const ventaja = E.tropas[o] - 1 - E.tropas[t];
-          if (ventaja < 1) continue;
-          const p = ventaja + interes(a, t) * 1.5;
-          if (p > puntaje) { puntaje = p; mejor = [o, t]; }
-        }
-        if (!mejor) break;
+      let anexadas = 0, mejor;
+      const N = nivel();
+      for (let n = 0; !E.terminado && (mejor = iaElegirAtaque(a, N, n, anexadas)); n++) {
         await atacar(...mejor); actualizar();
         if (E.ultimaTirada.conquista) anexadas++;
         await pausa();
@@ -455,7 +276,7 @@ async function iniciar(THREE, OrbitControls, CANNON) {
       if (E.terminado) { E.iaJugando = false; actualizar(); return; }
       pasarFase();
     }
-    iaReagrupar(a);
+    for (const [, t] of iaReagrupar(a)) mesa.tocar(a, fichas[t].g.position);
     if (E.golpes) avisar(`${E.nombres[a]}, de ${ALIANZAS[a].corto}, te sacó ${E.golpes} ${E.golpes === 1 ? 'ejército' : 'ejércitos'} en este turno`);
     E.iaJugando = false;
     actualizar(); await pausa();
@@ -970,8 +791,13 @@ async function iniciar(THREE, OrbitControls, CANNON) {
     ocultarAnuncio = setTimeout(() => el.classList.add('oculto'), 2600);
   }
 
-  let sucio = true;
+  // la textura del mapa mide 2048 x 2257: se redibuja y se sube a la placa solo si cambió lo que muestra
+  let sucio = true, mapaDibujado = '';
   function pintar() { sucio = true; }
+  function pintarMapa() {
+    const mapa = E.dueno.join() + '|' + E.sel + '|' + blancos().join();
+    if (mapa !== mapaDibujado) { dibujarTextura(); mapaDibujado = mapa; }
+  }
   function redimensionar() {
     const r = lienzo.parentElement.getBoundingClientRect();
     renderer.setSize(r.width, r.height, false);
@@ -981,7 +807,7 @@ async function iniciar(THREE, OrbitControls, CANNON) {
   redimensionar();
   function cuadro() {
     requestAnimationFrame(cuadro);
-    if (sucio) { dibujarTextura(); actualizarFichas(); sucio = false; }
+    if (sucio) { pintarMapa(); actualizarFichas(); sucio = false; }
     const ahora = performance.now();
     for (let n = efectos.length - 1; n >= 0; n--) {
       const ef = efectos[n], k = (ahora - ef.desde) / ef.dura;
@@ -1119,6 +945,8 @@ async function iniciar(THREE, OrbitControls, CANNON) {
     const a = E.actual, mio = a === E.humano && !E.terminado, empezada = E.ronda > 0;
     const fases = { refuerzos: 'Refuerzos', ataque: 'Ataque', reagrupar: 'Reagrupar' };
     ['#lado', '#abajo'].forEach(s => $(s).classList.toggle('oculto', !empezada));
+    // mientras se tiran los dados la columna de la derecha se corre: tapaba un tercio de la bandeja
+    if ((E.lanzando || (E.rafaga && opt('dados'))) && !E.eligiendo) $('#lado').classList.add('oculto');
     $('#ronda').textContent = empezada ? `Ronda ${E.ronda}${E.ronda >= RONDA_SISMO_DESDE ? ', puede llegar el sismo' : ''}` : 'Partida sin empezar';
     $('#turno-quien').textContent = empezada ? `Turno ${Math.max(1, E.turnos)}: ${ALIANZAS[a].corto}${a === E.humano ? ' (vos)' : ''}` : 'Turno';
     $('#turno-fase').textContent = E.terminado ? 'Partida terminada' : !empezada ? '' : fases[E.fase] + (E.fase === 'refuerzos' ? `, ${E.porColocar} por ubicar` : '');
@@ -1133,6 +961,7 @@ async function iniciar(THREE, OrbitControls, CANNON) {
       : `<p>Juegan los ${ALIANZAS[a].nombre}.</p><p class="sub">Un momento: ${E.nombres[a]} ${piensa[E.fase]}.</p>`;
     else if (E.enTutorial) acc = '<p>Seguí el tutorial; tu turno arranca al terminarlo.</p>';
     else if (E.iaJugando) acc = '<p>La IA está jugando tu turno.</p>';
+    else if (E.eligiendo) acc = '<p>Anexaste: elegí en el cuadro del medio cuántos ejércitos pasan.</p>';
     else if (E.lanzando && !E.rafaga) acc = '<p>Arrastrá sobre la bandeja y soltá para tirar los dados. Con la barra espaciadora se tiran solos.</p>';
     else if (E.rafaga) acc = `<p>Atacando ${L[E.ultimaTirada.t].n} hasta anexarla o quedarte con un ejército.</p>`;
     else if (E.fase === 'refuerzos') {
@@ -1170,13 +999,13 @@ async function iniciar(THREE, OrbitControls, CANNON) {
       + (mano.length ? mano.map(c => `<div class="naipe"><span class="tipo">Tarjeta de país</span>${simbolo(c.simbolo)}<b>${c.loc < 0 ? 'Comodín' : L[c.loc].n}</b><small>${c.simbolo}</small>${c.loc >= 0 && E.dueno[c.loc] === E.humano ? '<span class="marca">Tuya</span>' : ''}</div>`).join('')
         : '<div class="naipe vacia"><small>Sin tarjetas. Anexá una localidad en tu turno para sacar una.</small></div>')
       + `<div class="grupo tabla-oscura" style="width:150px; padding:7px 8px"><small>${mano.length} de 5. Tres iguales o tres distintas valen ${valor} ejércitos.</small>${puedeCanjear ? `<button class="principal" id="b-canje">Canjear por ${valor}</button>` : ''}</div>`;
-    const bc = $('#b-canje'); if (bc) bc.onclick = () => { canjear(E.humano); actualizar(); };
+    const bc = $('#b-canje'); if (bc) bc.onclick = () => { avisarCanje(E.humano, reglas.canjear(E.humano)); actualizar(); };
 
     const otras = TODAS.filter(b => b !== E.humano && cuenta(b) > 0);
     $('#pactos').innerHTML = `<h2>Pactos</h2>
-      ${otras.map(b => `<p>${ALIANZAS[b].corto}: ${enPacto(E.humano, b) ? `pacto hasta la ronda ${E.pactos[clavePacto(E.humano, b)]}` : 'sin pacto'}</p>`).join('')}
-      <div class="botones">${libre ? otras.filter(b => !enPacto(E.humano, b) && !E.propuesto.has(b)).map(b => `<button data-pacto="${b}">Proponer a ${ALIANZAS[b].corto}</button>`).join('') : ''}</div>
-      <p class="sub" style="font-size:13px">No atacarse durante ${RONDAS_PACTO} rondas.</p>`;
+      ${otras.map(b => `<p>${ALIANZAS[b].corto}: ${enPacto(E.humano, b) ? `pacto hasta tu turno de la ronda ${E.pactos[clavePacto(E.humano, b)].fin}` : E.ronda < (E.sinPacto[b] || 0) ? `sin pacto, se puede proponer desde la ronda ${E.sinPacto[b]}` : 'sin pacto'}</p>`).join('')}
+      <div class="botones">${libre ? otras.filter(puedeProponer).map(b => `<button data-pacto="${b}">Proponer a ${ALIANZAS[b].corto}</button>`).join('') : ''}</div>
+      <p class="sub" style="font-size:13px">No atacarse durante ${RONDAS_PACTO} rondas. Al terminar, ${ESPERA_PACTO} rondas de espera para renovarlo.</p>`;
     document.querySelectorAll('[data-pacto]').forEach(b => { b.onclick = () => proponerPacto(+b.dataset.pacto); });
     // la barra y la mesa de abajo cambian de alto según la pantalla y lo que haya en juego: los cuadros se apoyan en ellas
     $('#app').style.setProperty('--techo', $('#hud').offsetHeight + 8 + 'px');
@@ -1203,7 +1032,7 @@ async function iniciar(THREE, OrbitControls, CANNON) {
     ['#cronica', 'La crónica', 'Lo que va pasando en la partida, lo último arriba. Cada línea lleva el ícono de la Alianza que jugó; las de la ronda van sin ícono. Lo que ganás y lo que te sacan aparece además en un cartel abajo a la izquierda.'],
     ['#carta', 'La carta de la ronda', 'Cada ronda cae una carta de situación que cambia las reglas de esa ronda. Las dos primeras rondas son de neblina: solo se ataca a localidades autónomas.'],
     ['#mano', 'Tarjetas de país', 'Si anexaste en tu turno, al terminar el ataque sacás una tarjeta. Si la localidad es tuya, suma 2 ejércitos ahí. Tres del mismo dibujo o tres distintos se canjean por ejércitos durante los refuerzos; con cinco es obligatorio.'],
-    ['#pactos', 'Pactos', `Podés proponerle a otra Alianza no atacarse durante ${RONDAS_PACTO} rondas. La IA acepta o no según cómo viene la partida.`],
+    ['#pactos', 'Pactos', `Podés proponerle a otra Alianza no atacarse durante ${RONDAS_PACTO} rondas. La IA acepta o no según cómo viene la partida. Cuando termina hay que esperar ${ESPERA_PACTO} rondas para proponerlo de nuevo.`],
     ['#acciones', 'Reagrupar', 'Después del ataque pasás ejércitos entre localidades tuyas que sean vecinas y terminás el turno. Si te atacan, tirás vos los dados de defensa en la bandeja.'],
     ['#b-menu', 'El menú', 'Acá están las opciones de la mesa, la música, el ritmo de la IA, las regiones con sus bonos y este tutorial otra vez.'],
   ];
@@ -1241,7 +1070,7 @@ async function iniciar(THREE, OrbitControls, CANNON) {
   $('#o-brazo').onchange = () => mesa.mostrarBrazos(opt('brazo'));
 
   // las opciones quedan como las dejaste; en el teléfono los brazos arrancan apagados porque pesan
-  const OPCIONES = 'teg-la-pampa-opciones', CAMPOS = ['#o-rol', '#o-dados', '#o-defensa', '#o-brazo', '#ritmo', '#tema'];
+  const OPCIONES = 'teg-la-pampa-opciones', CAMPOS = ['#o-rol', '#o-dados', '#o-defensa', '#o-brazo', '#ritmo', '#dificultad', '#tema'];
   const valorDe = el => el.type === 'checkbox' ? el.checked : el.value;
   const previas = JSON.parse(localStorage.getItem(OPCIONES));
   if (previas) CAMPOS.forEach(c => { if (c in previas) $(c)[$(c).type === 'checkbox' ? 'checked' : 'value'] = previas[c]; });
@@ -1293,8 +1122,10 @@ async function iniciar(THREE, OrbitControls, CANNON) {
         return { a, estilo: { ...r, manga: al.color, tinta: al.tinta, sombrero: ['gorra', 'boina', 'sombrero', 'gorro'][a] }, asiento: r.asiento };
       });
       sentar();
-      nuevaRonda(); E.actual = 0;
-      tutorial(empezarTurno);
+      sortearPrimero();
+      contarRonda(reglas.nuevaRonda());
+      anotar(`Por sorteo, cada ronda la abren los ${ALIANZAS[E.primero].nombre}.`, E.primero);
+      tutorial(() => contarTurno(reglas.empezarTurno()));
     };
   });
   function sentar() {
